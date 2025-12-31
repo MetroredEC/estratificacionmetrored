@@ -271,6 +271,30 @@
       gap: 12px;
       margin: 12px 0 18px;
     }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .summary-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: #f9fbfd;
+    }
+    .summary-card h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+    .summary-card table {
+      margin-top: 0;
+    }
+    .summary-card th,
+    .summary-card td {
+      padding: 8px 10px;
+      font-size: 0.85rem;
+    }
     .chip {
       background: #eef4f8;
       color: var(--text);
@@ -617,6 +641,35 @@
       }
       return result;
     }
+    function buildCounts(data, keys, fallbackLabel) {
+      const counts = {};
+      data.forEach(row => {
+        let value = '';
+        for (const key of keys) {
+          if (row[key]) {
+            value = row[key];
+            break;
+          }
+        }
+        value = (value || '').trim() || fallbackLabel;
+        counts[value] = (counts[value] || 0) + 1;
+      });
+      return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, total]) => ({ label, total }));
+    }
+    function renderSummaryTable(title, rows) {
+      if (!rows.length) {
+        return '<div class="summary-card"><h3>' + title + '</h3><p class="muted">Sin datos para mostrar.</p></div>';
+      }
+      let html = '<div class="summary-card"><h3>' + title + '</h3>';
+      html += '<table><thead><tr><th>Detalle</th><th>HC</th></tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr><td>' + row.label + '</td><td>' + row.total + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      return html;
+    }
     function renderPreview(data) {
       if (!data.length) {
         resultsDiv.innerHTML = '<p class="muted">No se encontraron registros para el mes seleccionado.</p>';
@@ -629,6 +682,14 @@
       html += '<span class="chip">Registros asignados: ' + data.length + '</span>';
       html += '<span class="chip">' + monthLabel + '</span>';
       html += '<span class="chip">Auditores: ' + auditors.join(' · ') + '</span>';
+      html += '</div>';
+      const auditorCounts = buildCounts(data, ['AUDITOR'], 'Sin auditor');
+      const specialtyCounts = buildCounts(data, ['ESPECIALIDAD', 'Especialidad', 'especialidad'], 'Sin especialidad');
+      const centerCounts = buildCounts(data, ['CENTRO_MEDICO', 'CENTRO MEDICO', 'centro_medico', 'Centro Medico', 'Centro Médico'], 'Sin centro médico');
+      html += '<div class="summary-grid">';
+      html += renderSummaryTable('HC por auditor', auditorCounts);
+      html += renderSummaryTable('HC por especialidad', specialtyCounts);
+      html += renderSummaryTable('HC por centro médico', centerCounts);
       html += '</div>';
       html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
       const preview = data.slice(0, 10);
