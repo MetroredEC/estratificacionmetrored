@@ -5,68 +5,241 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Asignación de Auditores – Auditoría Médica</title>
   <style>
+    :root {
+      color-scheme: light;
+      --primary: #0b4a6f;
+      --primary-dark: #073954;
+      --accent: #16a4a3;
+      --surface: #ffffff;
+      --surface-muted: #f5f7f9;
+      --border: #d9e1ea;
+      --text: #1a2b3c;
+      --text-muted: #5f6c7b;
+      --shadow: 0 10px 30px rgba(9, 20, 43, 0.08);
+      --radius: 14px;
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      line-height: 1.4;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      background: linear-gradient(180deg, #eef4f8 0%, #f8fafc 40%, #ffffff 100%);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: var(--primary);
+      color: #ffffff;
+      padding: 32px 20px;
+      box-shadow: var(--shadow);
+    }
+    header .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
     h1 {
-      background-color: #0b4a6f;
-      color: white;
-      padding: 12px 20px;
-      font-size: 1.5rem;
+      margin: 0;
+      font-size: 1.9rem;
+      font-weight: 700;
     }
-    .container {
-      margin-top: 20px;
+    header p {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 1rem;
+      max-width: 700px;
+    }
+    main {
+      max-width: 1100px;
+      margin: -24px auto 40px;
+      padding: 0 20px;
+      display: grid;
+      gap: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .step {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      background: var(--surface-muted);
+    }
+    .step h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+    .muted {
+      color: var(--text-muted);
+      font-size: 0.92rem;
     }
     label {
       display: block;
-      margin-top: 1rem;
-      font-weight: bold;
+      margin-top: 0.75rem;
+      font-weight: 600;
     }
-    input[type="file"], input[type="month"] {
-      margin-top: 0.25rem;
+    .file-input {
+      margin-top: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    input[type="file"] {
+      border: 1px solid var(--border);
+      padding: 10px;
+      border-radius: 10px;
+      background: #ffffff;
+      width: 100%;
+      max-width: 360px;
+    }
+    input[type="month"] {
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #ffffff;
+      font-size: 0.95rem;
+    }
+    .file-name {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      padding: 6px 10px;
+      background: #eef4f8;
+      border-radius: 999px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 16px;
     }
     button {
-      margin-top: 1rem;
-      padding: 8px 16px;
-      background-color: #0b4a6f;
+      padding: 10px 18px;
+      background-color: var(--primary);
       color: white;
       border: none;
-      border-radius: 4px;
+      border-radius: 10px;
+      font-weight: 600;
       cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 12px rgba(11, 74, 111, 0.18);
+    }
+    button.secondary {
+      background: #ffffff;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      box-shadow: none;
     }
     button:disabled {
-      background-color: #aaa;
+      background-color: #c6d3df;
+      color: #6c7a89;
       cursor: default;
+      box-shadow: none;
+    }
+    button:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(11, 74, 111, 0.2);
+    }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 12px 0 18px;
+    }
+    .chip {
+      background: #eef4f8;
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.9rem;
+    }
+    .status {
+      margin-top: 8px;
+      font-weight: 600;
+      color: var(--primary-dark);
     }
     table {
       width: 100%;
       border-collapse: collapse;
       margin-top: 1rem;
       font-size: 0.9rem;
+      border-radius: 12px;
+      overflow: hidden;
     }
     th, td {
-      border: 1px solid #ccc;
-      padding: 4px 6px;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
     }
     th {
-      background-color: #f2f2f2;
+      background-color: #edf2f7;
+      font-weight: 600;
+    }
+    tbody tr:nth-child(even) {
+      background: #f9fbfd;
+    }
+    .footer-note {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 12px;
     }
   </style>
 </head>
 <body>
-  <h1>Asignación de Auditores – Auditoría Médica</h1>
-  <div class="container">
-    <p>Carga el archivo <strong>ARC_AUDITORIA_MEDICA.csv</strong>, filtra por mes si lo deseas y descarga el resultado con auditores asignados. Los auditores predeterminados son <strong>Dra. Mayte Vargas</strong> y <strong>Dr. Xavier Asan</strong>.</p>
-    <label for="arcFile">Archivo ARC_AUDITORIA_MEDICA.csv:</label>
-    <input type="file" id="arcFile" accept=".csv" />
-    <label for="monthInput">Mes (opcional, YYYY‑MM):</label>
-    <input type="month" id="monthInput" />
-    <button id="processBtn" disabled>Procesar y asignar</button>
-    <button id="downloadBtn" disabled>Descargar CSV asignado</button>
-    <div id="results"></div>
-  </div>
+  <header>
+    <div class="wrap">
+      <h1>Asignación de Auditores – Auditoría Médica</h1>
+      <p>Automatiza la asignación de auditores en minutos. Carga tu archivo, aplica el filtro por mes y exporta un CSV listo para compartir.</p>
+    </div>
+  </header>
+  <main>
+    <section class="card">
+      <div class="grid">
+        <div class="step">
+          <h3>1. Carga el archivo</h3>
+          <p class="muted">Usa el archivo <strong>ARC_AUDITORIA_MEDICA.csv</strong> con las columnas habituales.</p>
+          <label for="arcFile">Archivo CSV</label>
+          <div class="file-input">
+            <input type="file" id="arcFile" accept=".csv" />
+            <span class="file-name" id="fileName">Ningún archivo seleccionado</span>
+          </div>
+        </div>
+        <div class="step">
+          <h3>2. Aplica filtros</h3>
+          <p class="muted">Selecciona el mes para trabajar con periodos específicos.</p>
+          <label for="monthInput">Mes (opcional)</label>
+          <input type="month" id="monthInput" />
+          <p class="footer-note">Formato esperado: YYYY‑MM</p>
+        </div>
+        <div class="step">
+          <h3>3. Procesa y descarga</h3>
+          <p class="muted">Genera el listado con auditor asignado y exporta el archivo final.</p>
+          <div class="actions">
+            <button id="processBtn" disabled>Procesar y asignar</button>
+            <button id="downloadBtn" class="secondary" disabled>Descargar CSV asignado</button>
+          </div>
+          <p class="status" id="statusMsg">Listo para iniciar.</p>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Resumen de asignación</h2>
+      <p class="muted">Los auditores predeterminados son <strong>Dra. Mayte Vargas</strong> y <strong>Dr. Xavier Asan</strong>.</p>
+      <div id="results" aria-live="polite"></div>
+    </section>
+  </main>
   <script>
     // Función de parseo simple con detección de delimitador
     function parseCSV(text) {
@@ -118,15 +291,23 @@
     const processBtn = document.getElementById('processBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const resultsDiv = document.getElementById('results');
+    const fileName = document.getElementById('fileName');
+    const statusMsg = document.getElementById('statusMsg');
 
     arcFile.addEventListener('change', () => {
       if (arcFile.files.length) {
         processBtn.disabled = false;
+        fileName.textContent = arcFile.files[0].name;
+        statusMsg.textContent = 'Archivo cargado. Puedes procesar la asignación.';
+      } else {
+        fileName.textContent = 'Ningún archivo seleccionado';
+        statusMsg.textContent = 'Listo para iniciar.';
       }
     });
     processBtn.addEventListener('click', () => {
       const file = arcFile.files[0];
       if (!file) return;
+      statusMsg.textContent = 'Procesando archivo...';
       const reader = new FileReader();
       reader.onload = e => {
         const text = e.target.result;
@@ -144,6 +325,10 @@
         assignedData = assignAuditors(filtered);
         renderPreview(assignedData);
         downloadBtn.disabled = false;
+        const processedMsg = assignedData.length
+          ? 'Asignación completada. Puedes descargar el CSV.'
+          : 'No se encontraron registros. Ajusta los filtros y vuelve a intentar.';
+        statusMsg.textContent = processedMsg;
       };
       reader.readAsText(file);
     });
@@ -185,12 +370,17 @@
     }
     function renderPreview(data) {
       if (!data.length) {
-        resultsDiv.innerHTML = '<p>No se encontraron registros para el mes seleccionado.</p>';
+        resultsDiv.innerHTML = '<p class="muted">No se encontraron registros para el mes seleccionado.</p>';
         return;
       }
       // Mostrar tabla con primeros 10 registros
       const headers = Object.keys(data[0]);
-      let html = '<p>Se asignaron ' + data.length + ' registros.</p>';
+      const monthLabel = monthInput.value ? ('Mes: ' + monthInput.value) : 'Mes: Todos';
+      let html = '<div class="summary">';
+      html += '<span class="chip">Registros asignados: ' + data.length + '</span>';
+      html += '<span class="chip">' + monthLabel + '</span>';
+      html += '<span class="chip">Auditores: ' + auditors.join(' · ') + '</span>';
+      html += '</div>';
       html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
       const preview = data.slice(0, 10);
       preview.forEach(row => {
