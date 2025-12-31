@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asignación de Auditores – Auditoría Médica</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      line-height: 1.4;
+    }
+    h1 {
+      background-color: #0b4a6f;
+      color: white;
+      padding: 12px 20px;
+      font-size: 1.5rem;
+    }
+    .container {
+      margin-top: 20px;
+    }
+    label {
+      display: block;
+      margin-top: 1rem;
+      font-weight: bold;
+    }
+    input[type="file"], input[type="month"] {
+      margin-top: 0.25rem;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 8px 16px;
+      background-color: #0b4a6f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #aaa;
+      cursor: default;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px 6px;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+  <h1>Asignación de Auditores – Auditoría Médica</h1>
+  <div class="container">
+    <p>Carga el archivo <strong>ARC_AUDITORIA_MEDICA.csv</strong>, filtra por mes si lo deseas y descarga el resultado con auditores asignados. Los auditores predeterminados son <strong>Dra. Mayte Vargas</strong> y <strong>Dr. Xavier Asan</strong>.</p>
+    <label for="arcFile">Archivo ARC_AUDITORIA_MEDICA.csv:</label>
+    <input type="file" id="arcFile" accept=".csv" />
+    <label for="monthInput">Mes (opcional, YYYY‑MM):</label>
+    <input type="month" id="monthInput" />
+    <button id="processBtn" disabled>Procesar y asignar</button>
+    <button id="downloadBtn" disabled>Descargar CSV asignado</button>
+    <div id="results"></div>
+  </div>
+  <script>
+    // Función de parseo simple con detección de delimitador
+    function parseCSV(text) {
+      const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim() !== '');
+      if (!lines.length) return [];
+      const delims = [',', ';', '\t', '|'];
+      let chosen = ',';
+      let maxFields = 0;
+      for (const d of delims) {
+        const count = lines[0].split(d).length;
+        if (count > maxFields) {
+          chosen = d;
+          maxFields = count;
+        }
+      }
+      const headers = lines[0].split(chosen).map(h => h.trim().replace(/^\ufeff/, ''));
+      const records = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(chosen).map(p => p.trim());
+        const obj = {};
+        headers.forEach((h, idx) => {
+          obj[h] = parts[idx] !== undefined ? parts[idx] : '';
+        });
+        records.push(obj);
+      }
+      return records;
+    }
+    // Parsear fechas y extraer mes (YYYY‑MM)
+    function parseDateStr(s) {
+      if (!s) return null;
+      s = s.trim();
+      const parts = s.split(/[\/-]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return new Date(parts[0], parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else {
+          return new Date(parts[2], parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+      }
+      return new Date(s);
+    }
+    // Variables
+    let arcData = [];
+    let assignedData = [];
+    const auditors = ['Dra. Mayte Vargas', 'Dr. Xavier Asan'];
+
+    const arcFile = document.getElementById('arcFile');
+    const monthInput = document.getElementById('monthInput');
+    const processBtn = document.getElementById('processBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const resultsDiv = document.getElementById('results');
+
+    arcFile.addEventListener('change', () => {
+      if (arcFile.files.length) {
+        processBtn.disabled = false;
+      }
+    });
+    processBtn.addEventListener('click', () => {
+      const file = arcFile.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const text = e.target.result;
+        arcData = parseCSV(text);
+        const monthVal = monthInput.value;
+        let filtered = arcData;
+        if (monthVal) {
+          filtered = arcData.filter(r => {
+            const d = parseDateStr(r['FECHA_ADMISION'] || r['FECHA ADMISION'] || '');
+            if (!d || isNaN(d.getTime())) return false;
+            const ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+            return ym === monthVal;
+          });
+        }
+        assignedData = assignAuditors(filtered);
+        renderPreview(assignedData);
+        downloadBtn.disabled = false;
+      };
+      reader.readAsText(file);
+    });
+    downloadBtn.addEventListener('click', () => {
+      if (!assignedData.length) return;
+      const headers = Object.keys(assignedData[0]);
+      let csv = headers.join(',') + '\n';
+      assignedData.forEach(row => {
+        csv += headers.map(h => row[h]).join(',') + '\n';
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ARC_auditores_asignados.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+    function assignAuditors(records) {
+      const groups = {};
+      records.forEach(r => {
+        let esp = r['ESPECIALIDAD'] || r['Especialidad'] || r['especialidad'] || 'Sin Espec';
+        esp = esp.trim() || 'Sin Espec';
+        if (!groups[esp]) groups[esp] = [];
+        groups[esp].push(r);
+      });
+      const result = [];
+      for (const esp in groups) {
+        const arr = groups[esp];
+        arr.forEach((rec, idx) => {
+          const auditor = auditors[idx % auditors.length];
+          const newRec = Object.assign({}, rec, { AUDITOR: auditor });
+          result.push(newRec);
+        });
+      }
+      return result;
+    }
+    function renderPreview(data) {
+      if (!data.length) {
+        resultsDiv.innerHTML = '<p>No se encontraron registros para el mes seleccionado.</p>';
+        return;
+      }
+      // Mostrar tabla con primeros 10 registros
+      const headers = Object.keys(data[0]);
+      let html = '<p>Se asignaron ' + data.length + ' registros.</p>';
+      html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
+      const preview = data.slice(0, 10);
+      preview.forEach(row => {
+        html += '<tr>' + headers.map(h => '<td>' + row[h] + '</td>').join('') + '</tr>';
+      });
+      if (data.length > 10) {
+        html += '<tr><td colspan="' + headers.length + '">… (' + (data.length - 10) + ' registros más)</td></tr>';
+      }
+      html += '</tbody></table>';
+      resultsDiv.innerHTML = html;
+    }
+  </script>
+</body>
+</html>
