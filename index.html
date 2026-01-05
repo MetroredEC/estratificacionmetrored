@@ -271,6 +271,39 @@
       gap: 12px;
       margin: 12px 0 18px;
     }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .summary-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: #f9fbfd;
+    }
+    .summary-card h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+    .summary-card .summary-highlight {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .summary-card .summary-highlight span {
+      font-weight: 600;
+      color: var(--primary-dark);
+    }
+    .summary-card table {
+      margin-top: 0;
+    }
+    .summary-card th,
+    .summary-card td {
+      padding: 8px 10px;
+      font-size: 0.85rem;
+    }
     .chip {
       background: #eef4f8;
       color: var(--text);
@@ -307,6 +340,20 @@
       font-size: 0.85rem;
       color: var(--text-muted);
       margin-top: 12px;
+    }
+    .scroll-table {
+      max-height: 240px;
+      overflow-y: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .scroll-table table {
+      border-collapse: collapse;
+    }
+    .scroll-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
   </style>
 </head>
@@ -571,8 +618,31 @@
             return ym === monthVal;
           });
         }
-        assignedData = assignAuditors(filtered);
-        renderPreview(assignedData);
+        const normalizedRows = normalizeRows(filtered);
+        const seed = monthVal
+          ? Number(monthVal.replace('-', '') + '01')
+          : Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+        const { nTotal, N, nPorEspecialidad, asignaciones } = estratificarYAsignar(
+          normalizedRows,
+          seed,
+          auditors
+        );
+        const mapAud = new Map(asignaciones.map(a => [a.admision, a.auditor]));
+        assignedData = filtered.map(row => {
+          const admision = getFieldValue(
+            row,
+            ['ADMISION', 'ADMISIÓN', 'Admision', 'admision', 'NRO_ADMISION']
+          );
+          const auditor = mapAud.get(admision) || '';
+          return Object.assign({}, row, { AUDITOR: auditor });
+        });
+        renderPreview({
+          assignedRows: assignedData,
+          totalUniverso: N,
+          totalMuestra: nTotal,
+          muestraPorEspecialidad: nPorEspecialidad,
+          asignaciones
+        });
         downloadBtn.disabled = false;
         const processedMsg = assignedData.length
           ? 'Asignación completada. Puedes descargar el CSV.'
@@ -598,30 +668,202 @@
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     });
-    function assignAuditors(records) {
-      const groups = {};
-      records.forEach(r => {
-        let esp = r['ESPECIALIDAD'] || r['Especialidad'] || r['especialidad'] || 'Sin Espec';
-        esp = esp.trim() || 'Sin Espec';
-        if (!groups[esp]) groups[esp] = [];
-        groups[esp].push(r);
+    // ====================== Estratificación según proceso institucional ======================
+    // Z=1.96 (95%), E=0.05, p=0.5 -> n para población finita (redondeo CEIL)
+    function sampleSizeFinitePopulation(N, Z = 1.96, E = 0.05, p = 0.5) {
+      if (!N || N <= 0) return 0;
+      const q = 1 - p;
+      const n0 = (Math.pow(Z, 2) * p * q) / Math.pow(E, 2);
+      const n = (N * n0) / (n0 + (N - 1));
+      return Math.min(N, Math.max(1, Math.ceil(n)));
+    }
+    // Asignación Hamilton/LFR: reparte 'n' con enteros preservando suma total usando restos decimales
+    function largestRemainder(allocation, n) {
+      const floors = allocation.map(x => Math.floor(x));
+      let sum = floors.reduce((a, b) => a + b, 0);
+      const remain = allocation
+        .map((x, i) => ({ i, frac: x - floors[i] }))
+        .sort((a, b) => b.frac - a.frac);
+      let k = 0;
+      while (sum < n && k < remain.length) {
+        floors[remain[k].i]++;
+        sum++;
+        k++;
+      }
+      k = remain.length - 1;
+      while (sum > n && k >= 0) {
+        if (floors[remain[k].i] > 0) {
+          floors[remain[k].i]--;
+          sum--;
+        }
+        k--;
+      }
+      return floors;
+    }
+    // RNG con semilla para muestreo reproducible (Mulberry32)
+    function rng(seed) {
+      return function () {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function shuffleInPlace(arr, r = () => Math.random()) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(r() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+    // Helper de conteo por clave
+    function countBy(rows, key) {
+      const m = new Map();
+      for (const r of rows) {
+        const k = key(r);
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      return m;
+    }
+    function estratificarYAsignar(universo, seed, auditores, opciones) {
+      const K_ESP = 'ESPECIALIDAD';
+      const K_ADM = 'ADMISION';
+      const N = universo.length;
+      const nTotal = sampleSizeFinitePopulation(
+        N,
+        opciones?.Z ?? 1.96,
+        opciones?.E ?? 0.05,
+        opciones?.p ?? 0.5
+      );
+      const byEsp = new Map();
+      for (const r of universo) {
+        const esp = String(r[K_ESP] || '').trim();
+        if (!esp) continue;
+        if (!byEsp.has(esp)) byEsp.set(esp, []);
+        byEsp.get(esp).push(r);
+      }
+      const espPobl = Array.from(byEsp.entries()).map(([esp, rows]) => ({ esp, N_ij: rows.length }));
+      const estratoDe = Nij => (Nij >= 3000 ? 1 : (Nij >= 1000 ? 2 : 3));
+      const estratos = new Map();
+      for (const e of espPobl) {
+        const est = estratoDe(e.N_ij);
+        if (!estratos.has(est)) estratos.set(est, []);
+        estratos.get(est).push({ esp: e.esp, N_ij: e.N_ij });
+      }
+      const estClaves = Array.from(estratos.keys()).sort();
+      const N_i = estClaves.map(est => (estratos.get(est) || []).reduce((s, x) => s + x.N_ij, 0));
+      const propsEstrato = N_i.map(Ni => N > 0 ? (Ni / N) * nTotal : 0);
+      const n_i = largestRemainder(propsEstrato, nTotal);
+      const muestraPorEspecialidad = new Map();
+      estClaves.forEach((est, idx) => {
+        const espDelEstrato = estratos.get(est) || [];
+        const Ni = N_i[idx];
+        const nDelEstrato = n_i[idx];
+        if (espDelEstrato.length === 0 || nDelEstrato === 0) return;
+        const prelim = espDelEstrato.map(e => (Ni > 0 ? (e.N_ij / Ni) * nDelEstrato : 0));
+        let n_ij = largestRemainder(prelim, nDelEstrato);
+        const faltan = espDelEstrato
+          .map((e, k) => ({ k, need: n_ij[k] === 0 ? 1 : 0 }))
+          .filter(x => x.need === 1);
+        let extras = 0;
+        for (const x of faltan) extras += 1;
+        if (extras > 0 && extras <= nDelEstrato) {
+          for (const x of faltan) n_ij[x.k] = 1;
+          let exceso = (n_ij.reduce((a, b) => a + b, 0) - nDelEstrato);
+          if (exceso > 0) {
+            const orden = n_ij.map((v, k) => ({ k, v })).sort((a, b) => b.v - a.v);
+            let p = 0;
+            while (exceso > 0 && p < orden.length) {
+              if (n_ij[orden[p].k] > 1) {
+                n_ij[orden[p].k]--;
+                exceso--;
+              } else {
+                p++;
+              }
+            }
+          }
+        }
+        espDelEstrato.forEach((e, k) => {
+          if (n_ij[k] > 0) muestraPorEspecialidad.set(e.esp, n_ij[k]);
+        });
       });
-      const result = [];
-      for (const esp in groups) {
-        const arr = groups[esp];
-        arr.forEach((rec, idx) => {
-          const auditor = auditors[idx % auditors.length];
-          const newRec = Object.assign({}, rec, { AUDITOR: auditor });
-          result.push(newRec);
+      const r = rng(seed || 20250101);
+      const seleccion = [];
+      for (const [esp, k] of muestraPorEspecialidad.entries()) {
+        const pool = (byEsp.get(esp) || []).slice();
+        shuffleInPlace(pool, r);
+        seleccion.push(...pool.slice(0, Math.min(k, pool.length)));
+      }
+      const asignaciones = [];
+      const porEspSel = new Map();
+      for (const row of seleccion) {
+        const esp = String(row[K_ESP] || '').trim();
+        if (!porEspSel.has(esp)) porEspSel.set(esp, []);
+        porEspSel.get(esp).push(row);
+      }
+      for (const [esp, rows] of porEspSel.entries()) {
+        rows.sort((a, b) => String(a[K_ADM]).localeCompare(String(b[K_ADM])));
+        rows.forEach((row, i) => {
+          const auditor = auditores[i % auditores.length] || auditores[0];
+          asignaciones.push({ admision: String(row[K_ADM]), especialidad: esp, auditor });
         });
       }
-      return result;
+      return { nTotal, N, nPorEspecialidad: muestraPorEspecialidad, asignaciones };
     }
-    function renderPreview(data) {
+    function getFieldValue(row, keys) {
+      for (const key of keys) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return String(row[key]).trim();
+        }
+      }
+      return '';
+    }
+    function normalizeRows(rows) {
+      return rows.map(row => ({
+        ...row,
+        ESPECIALIDAD: getFieldValue(row, ['ESPECIALIDAD', 'Especialidad', 'especialidad']),
+        ADMISION: getFieldValue(row, ['ADMISION', 'ADMISIÓN', 'Admision', 'admision', 'NRO_ADMISION'])
+      }));
+    }
+    function buildCounts(data, keys, fallbackLabel) {
+      const counts = {};
+      data.forEach(row => {
+        let value = '';
+        for (const key of keys) {
+          if (row[key]) {
+            value = row[key];
+            break;
+          }
+        }
+        value = (value || '').trim() || fallbackLabel;
+        counts[value] = (counts[value] || 0) + 1;
+      });
+      return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, total]) => ({ label, total }));
+    }
+    function renderSummaryTable(title, rows) {
+      if (!rows.length) {
+        return '<div class="summary-card"><h3>' + title + '</h3><p class="muted">Sin datos para mostrar.</p></div>';
+      }
+      let html = '<div class="summary-card"><h3>' + title + '</h3>';
+      html += '<table><thead><tr><th>Detalle</th><th>HC</th></tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr><td>' + row.label + '</td><td>' + row.total + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      return html;
+    }
+    function renderPreview(payload) {
+      const data = payload.assignedRows || [];
       if (!data.length) {
         resultsDiv.innerHTML = '<p class="muted">No se encontraron registros para el mes seleccionado.</p>';
         return;
       }
+      const totalUniverso = payload.totalUniverso || data.length;
+      const totalMuestra = payload.totalMuestra || 0;
+      const asignaciones = payload.asignaciones || [];
+      const muestraPorEspecialidad = payload.muestraPorEspecialidad || new Map();
       // Mostrar tabla con primeros 10 registros
       const headers = Object.keys(data[0]);
       const monthLabel = monthInput.value ? ('Mes: ' + monthInput.value) : 'Mes: Todos';
@@ -629,6 +871,47 @@
       html += '<span class="chip">Registros asignados: ' + data.length + '</span>';
       html += '<span class="chip">' + monthLabel + '</span>';
       html += '<span class="chip">Auditores: ' + auditors.join(' · ') + '</span>';
+      html += '</div>';
+      const auditorCounts = buildCounts(data, ['AUDITOR'], 'Sin auditor');
+      const specialtyCounts = buildCounts(data, ['ESPECIALIDAD', 'Especialidad', 'especialidad'], 'Sin especialidad');
+      const centerCounts = buildCounts(
+        data,
+        ['CENTRO_MEDICO', 'CENTRO MEDICO', 'centro_medico', 'Centro Medico', 'Centro Médico'],
+        'Sin centro médico'
+      );
+      html += '<div class="summary-grid">';
+      html += '<div class="summary-card">';
+      html += '<h3>Resumen de muestra</h3>';
+      html += '<div class="summary-highlight">';
+      html += '<span>N universo: ' + totalUniverso + '</span>';
+      html += '<span>n muestra: ' + totalMuestra + '</span>';
+      html += '</div>';
+      html += '</div>';
+      html += renderSummaryTable('HC por auditor', auditorCounts);
+      html += renderSummaryTable('HC por especialidad', specialtyCounts);
+      html += renderSummaryTable('HC por centro médico', centerCounts);
+      html += '</div>';
+      html += '<div class="summary-grid">';
+      html += renderSummaryTable(
+        'n por especialidad',
+        Array.from(muestraPorEspecialidad.entries())
+          .map(([label, total]) => ({ label, total }))
+          .sort((a, b) => b.total - a.total)
+      );
+      html += '<div class="summary-card">';
+      html += '<h3>Asignaciones (muestra)</h3>';
+      if (!asignaciones.length) {
+        html += '<p class="muted">No hay asignaciones para mostrar.</p>';
+      } else {
+        html += '<div class="scroll-table"><table><thead><tr>';
+        html += '<th>Admisión</th><th>Especialidad</th><th>Auditor</th>';
+        html += '</tr></thead><tbody>';
+        asignaciones.forEach(row => {
+          html += '<tr><td>' + row.admision + '</td><td>' + row.especialidad + '</td><td>' + row.auditor + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      html += '</div>';
       html += '</div>';
       html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
       const preview = data.slice(0, 10);
