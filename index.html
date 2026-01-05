@@ -355,6 +355,21 @@
       top: 0;
       z-index: 1;
     }
+    .summary-table {
+      max-height: 240px;
+      overflow: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .summary-table table {
+      border-collapse: collapse;
+      margin-top: 0;
+    }
+    .summary-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
   </style>
 </head>
 <body>
@@ -618,17 +633,21 @@
             return ym === monthVal;
           });
         }
-        const normalizedRows = normalizeRows(filtered);
+        const filteredBase = filtered
+          .filter(row => !rowContainsDoctor(row, 'Dr. Xavier Asan'))
+          .filter(row => !shouldExcludeSpecialty(row));
+        const sampleCandidates = filteredBase.filter(row => rowHasCex(row));
+        const normalizedRows = normalizeRows(sampleCandidates);
         const seed = monthVal
           ? Number(monthVal.replace('-', '') + '01')
           : Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
-        const { nTotal, N, nPorEspecialidad, asignaciones } = estratificarYAsignar(
+        const { nTotal, N, nPorEspecialidad, asignaciones, sampleRows } = estratificarYAsignar(
           normalizedRows,
           seed,
           auditors
         );
         const mapAud = new Map(asignaciones.map(a => [a.admision, a.auditor]));
-        assignedData = filtered.map(row => {
+        assignedData = sampleRows.map(row => {
           const admision = getFieldValue(
             row,
             ['ADMISION', 'ADMISIÓN', 'Admision', 'admision', 'NRO_ADMISION']
@@ -641,12 +660,13 @@
           totalUniverso: N,
           totalMuestra: nTotal,
           muestraPorEspecialidad: nPorEspecialidad,
-          asignaciones
+          asignaciones,
+          sampleRows
         });
         downloadBtn.disabled = false;
         const processedMsg = assignedData.length
-          ? 'Asignación completada. Puedes descargar el CSV.'
-          : 'No se encontraron registros. Ajusta los filtros y vuelve a intentar.';
+          ? 'Asignación completada. Puedes descargar el archivo.'
+          : 'Archivo procesado. No hay registros en la muestra.';
         statusMsg.textContent = processedMsg;
       };
       reader.readAsText(file);
@@ -658,11 +678,11 @@
       assignedData.forEach(row => {
         csv += headers.map(h => row[h]).join(',') + '\n';
       });
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob([csv], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'ARC_auditores_asignados.csv';
+      link.download = 'ARC_auditores_asignados.xls';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -794,21 +814,27 @@
         shuffleInPlace(pool, r);
         seleccion.push(...pool.slice(0, Math.min(k, pool.length)));
       }
+      const seleccionOrdenada = seleccion.slice().sort((a, b) => String(a[K_ADM]).localeCompare(String(b[K_ADM])));
+      const asignaciones = asignarAuditoresBalanceado(seleccionOrdenada, auditores, K_ADM, K_ESP);
+      return { nTotal, N, nPorEspecialidad: muestraPorEspecialidad, asignaciones, sampleRows: seleccionOrdenada };
+    }
+    function asignarAuditoresBalanceado(rows, auditores, keyAdmision, keyEspecialidad) {
       const asignaciones = [];
-      const porEspSel = new Map();
-      for (const row of seleccion) {
-        const esp = String(row[K_ESP] || '').trim();
-        if (!porEspSel.has(esp)) porEspSel.set(esp, []);
-        porEspSel.get(esp).push(row);
-      }
-      for (const [esp, rows] of porEspSel.entries()) {
-        rows.sort((a, b) => String(a[K_ADM]).localeCompare(String(b[K_ADM])));
-        rows.forEach((row, i) => {
-          const auditor = auditores[i % auditores.length] || auditores[0];
-          asignaciones.push({ admision: String(row[K_ADM]), especialidad: esp, auditor });
+      const counts = new Map(auditores.map(aud => [aud, 0]));
+      let tieIndex = 0;
+      rows.forEach(row => {
+        const minCount = Math.min(...auditores.map(aud => counts.get(aud) || 0));
+        const candidatos = auditores.filter(aud => (counts.get(aud) || 0) === minCount);
+        const auditor = candidatos[tieIndex % candidatos.length];
+        tieIndex++;
+        counts.set(auditor, (counts.get(auditor) || 0) + 1);
+        asignaciones.push({
+          admision: String(row[keyAdmision]),
+          especialidad: String(row[keyEspecialidad] || '').trim(),
+          auditor
         });
-      }
-      return { nTotal, N, nPorEspecialidad: muestraPorEspecialidad, asignaciones };
+      });
+      return asignaciones;
     }
     function getFieldValue(row, keys) {
       for (const key of keys) {
@@ -824,6 +850,58 @@
         ESPECIALIDAD: getFieldValue(row, ['ESPECIALIDAD', 'Especialidad', 'especialidad']),
         ADMISION: getFieldValue(row, ['ADMISION', 'ADMISIÓN', 'Admision', 'admision', 'NRO_ADMISION'])
       }));
+    }
+    function shouldExcludeSpecialty(row) {
+      const excluded = new Set([
+        'NUTRICION',
+        'PSICOLOGIA',
+        'PSICOLOGIA CLINICA',
+        'OPTOMETRIA'
+      ]);
+      const specialty = String(getFieldValue(row, ['ESPECIALIDAD', 'Especialidad', 'especialidad'])).toUpperCase();
+      return excluded.has(specialty);
+    }
+    function rowContainsDoctor(row, doctorName) {
+      const keys = [
+        'medico_tratante',
+        'medico tratante',
+        'medico',
+        'medico_a_cargo',
+        'medico a cargo',
+        'profesional',
+        'doctor',
+        'nombre_medico',
+        'nombre medico'
+      ];
+      const needle = doctorName.toLowerCase();
+      const lowerMap = new Map(
+        Object.keys(row).map(key => [key.toLowerCase(), key])
+      );
+      return keys.some(key => {
+        const originalKey = lowerMap.get(key);
+        if (!originalKey) return false;
+        return String(row[originalKey] || '').toLowerCase().includes(needle);
+      });
+    }
+    function rowHasCex(row) {
+      const keys = [
+        'cex',
+        'cex_medico',
+        'cex medico',
+        'cex_med',
+        'cex med',
+        'centro_excelencia',
+        'centro excelencia'
+      ];
+      const lowerMap = new Map(
+        Object.keys(row).map(key => [key.toLowerCase(), key])
+      );
+      return keys.some(key => {
+        const originalKey = lowerMap.get(key);
+        if (!originalKey) return false;
+        const value = row[originalKey];
+        return value !== undefined && value !== null && String(value).trim() !== '';
+      });
     }
     function buildCounts(data, keys, fallbackLabel) {
       const counts = {};
@@ -847,35 +925,33 @@
         return '<div class="summary-card"><h3>' + title + '</h3><p class="muted">Sin datos para mostrar.</p></div>';
       }
       let html = '<div class="summary-card"><h3>' + title + '</h3>';
-      html += '<table><thead><tr><th>Detalle</th><th>HC</th></tr></thead><tbody>';
+      html += '<div class="summary-table"><table><thead><tr><th>Detalle</th><th>HC</th></tr></thead><tbody>';
       rows.forEach(row => {
         html += '<tr><td>' + row.label + '</td><td>' + row.total + '</td></tr>';
       });
-      html += '</tbody></table></div>';
+      html += '</tbody></table></div></div>';
       return html;
     }
     function renderPreview(payload) {
       const data = payload.assignedRows || [];
-      if (!data.length) {
-        resultsDiv.innerHTML = '<p class="muted">No se encontraron registros para el mes seleccionado.</p>';
-        return;
-      }
       const totalUniverso = payload.totalUniverso || data.length;
       const totalMuestra = payload.totalMuestra || 0;
       const asignaciones = payload.asignaciones || [];
+      const sampleRows = payload.sampleRows || [];
       const muestraPorEspecialidad = payload.muestraPorEspecialidad || new Map();
-      // Mostrar tabla con primeros 10 registros
-      const headers = Object.keys(data[0]);
       const monthLabel = monthInput.value ? ('Mes: ' + monthInput.value) : 'Mes: Todos';
       let html = '<div class="summary">';
-      html += '<span class="chip">Registros asignados: ' + data.length + '</span>';
+      html += '<span class="chip">Registros en muestra: ' + (sampleRows.length || totalMuestra) + '</span>';
       html += '<span class="chip">' + monthLabel + '</span>';
       html += '<span class="chip">Auditores: ' + auditors.join(' · ') + '</span>';
       html += '</div>';
-      const auditorCounts = buildCounts(data, ['AUDITOR'], 'Sin auditor');
-      const specialtyCounts = buildCounts(data, ['ESPECIALIDAD', 'Especialidad', 'especialidad'], 'Sin especialidad');
+      if (!sampleRows.length) {
+        html += '<p class="muted">No hay registros en la muestra después de aplicar los filtros de CEX y especialidad.</p>';
+      }
+      const auditorCounts = buildCounts(asignaciones, ['auditor', 'AUDITOR'], 'Sin auditor');
+      const specialtyCounts = buildCounts(sampleRows, ['ESPECIALIDAD', 'Especialidad', 'especialidad'], 'Sin especialidad');
       const centerCounts = buildCounts(
-        data,
+        sampleRows,
         ['CENTRO_MEDICO', 'CENTRO MEDICO', 'centro_medico', 'Centro Medico', 'Centro Médico'],
         'Sin centro médico'
       );
@@ -913,15 +989,18 @@
       }
       html += '</div>';
       html += '</div>';
-      html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
-      const preview = data.slice(0, 10);
-      preview.forEach(row => {
-        html += '<tr>' + headers.map(h => '<td>' + row[h] + '</td>').join('') + '</tr>';
-      });
-      if (data.length > 10) {
-        html += '<tr><td colspan="' + headers.length + '">… (' + (data.length - 10) + ' registros más)</td></tr>';
+      if (data.length) {
+        const headers = Object.keys(data[0]);
+        html += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
+        const preview = data.slice(0, 10);
+        preview.forEach(row => {
+          html += '<tr>' + headers.map(h => '<td>' + row[h] + '</td>').join('') + '</tr>';
+        });
+        if (data.length > 10) {
+          html += '<tr><td colspan="' + headers.length + '">… (' + (data.length - 10) + ' registros más)</td></tr>';
+        }
+        html += '</tbody></table>';
       }
-      html += '</tbody></table>';
       resultsDiv.innerHTML = html;
     }
 
