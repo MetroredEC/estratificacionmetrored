@@ -815,9 +815,20 @@
         shuffleInPlace(pool, r);
         seleccion.push(...pool.slice(0, Math.min(k, pool.length)));
       }
+      if (seleccion.length < nTotal) {
+        const seleccionSet = new Set(seleccion);
+        const faltantes = nTotal - seleccion.length;
+        const remanente = universo.filter(row => !seleccionSet.has(row));
+        shuffleInPlace(remanente, r);
+        seleccion.push(...remanente.slice(0, faltantes));
+      }
+      const nPorEspecialidadReal = countBy(
+        seleccion,
+        row => String(row[K_ESP] || '').trim() || 'SIN ESPECIALIDAD'
+      );
       const seleccionOrdenada = seleccion.slice().sort((a, b) => String(a[K_ADM]).localeCompare(String(b[K_ADM])));
       const asignaciones = asignarAuditoresBalanceado(seleccionOrdenada, auditores, K_ADM, K_ESP);
-      return { nTotal, N, nPorEspecialidad: muestraPorEspecialidad, asignaciones, sampleRows: seleccionOrdenada };
+      return { nTotal, N, nPorEspecialidad: nPorEspecialidadReal, asignaciones, sampleRows: seleccionOrdenada };
     }
     function asignarAuditoresBalanceado(rows, auditores, keyAdmision, keyEspecialidad) {
       const asignaciones = [];
