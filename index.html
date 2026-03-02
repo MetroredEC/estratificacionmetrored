@@ -759,8 +759,7 @@
       );
       const byEsp = new Map();
       for (const r of universo) {
-        const esp = String(r[K_ESP] || '').trim();
-        if (!esp) continue;
+        const esp = String(r[K_ESP] || '').trim() || 'SIN ESPECIALIDAD';
         if (!byEsp.has(esp)) byEsp.set(esp, []);
         byEsp.get(esp).push(r);
       }
